@@ -1,5 +1,6 @@
 package kz.home.RelaySmartSystems.model;
 
+import kz.home.RelaySmartSystems.model.entity.Controller;
 import kz.home.RelaySmartSystems.model.entity.User;
 import lombok.Getter;
 import lombok.Setter;
@@ -23,6 +24,7 @@ public class WSSession {
     private String clientIP;
     private boolean authorized = false;
     private Date lastSend = new Date();
+    private Long lastPongTime;
 
     // for web
     private User user;
@@ -30,6 +32,7 @@ public class WSSession {
 
     // for controllers
     private String mac;
+    private Controller controller;
 
     public WSSession(WebSocketSession session, String clientIP) {
         this.session = session;

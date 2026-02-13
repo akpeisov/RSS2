@@ -31,14 +31,13 @@ public class Controller {
     private String description;
     private String status;
     private Integer uptimeRaw;
-    private String uptime;
     private Integer freeMemory;
-    private String version;
+    private Integer version;
     private String ethIP;
     private String wifiIP;
     private Integer wifiRSSI;
     private Long crc;
-    private String model;
+    private CModel model;
     private String resetReason;
     @Column(columnDefinition = "text")
     private String hwParams;

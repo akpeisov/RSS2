@@ -33,7 +33,7 @@ public class RCConfigMapper {
         rcConfigDTO.setName(controller.getName());
         rcConfigDTO.setMac(controller.getMac());
         rcConfigDTO.setDescription(controller.getDescription());
-        rcConfigDTO.setModel(controller.getModel());
+        rcConfigDTO.setModel(controller.getModel().name());
         rcConfigDTO.setStatus(controller.getStatus());
         rcConfigDTO.setLastSeen(controller.getLastSeen());
         rcConfigDTO.setConfig(deviceConfigService.getConfig(controller));

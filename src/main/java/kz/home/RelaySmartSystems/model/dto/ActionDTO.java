@@ -15,6 +15,6 @@ public class ActionDTO {
     private String mac;
     private String node;
     private Integer output;
-    //private Integer input;
+    private Integer input;
     private String action;
 }

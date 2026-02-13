@@ -1,0 +1,33 @@
+алгоритм обмена
+C - HLO hello (jwt, mac, model, nodes list)
+S - RQC check for all nodes exists, if one of nodes not exists then request current full config
+C - CFG send config with nodes
+S - OK create all nodes
+...
+C - INF sending info periodicaly
+C - EVT sengind events
+
+обмен с esp через binary protocol
+
+MGC MSGTYPE PAYLOAD CRC
+
+test postman
+{"type":"HELLO","payload":{"token":"AABBCCDDEEFF","type":"web1"}}
+{"type":"USERDEVICES"}
+
+https://crccalc.com/ crc with raw hex packet
+
+example new node with mac A1 11 22 33 44 55
+AA 4E A1 11 22 33 44 55 02 b3 a7
+
+1. отправка HELLO с jwt, содержащим mac, model
+- проверка на существующий mac, если нет то завести новый
+- отправка ответа auth
+---
+2. отправка события "добавление новой ноды" (в режиме дискавери), mac+model
+- проверка на существование ноды, если нет то создать и сделать связь в rcgroup
+
+3. отправка события "инфо"
+- посадка данных инфо
+
+

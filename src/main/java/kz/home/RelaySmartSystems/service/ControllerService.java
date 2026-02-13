@@ -1,9 +1,8 @@
 package kz.home.RelaySmartSystems.service;
 
-import kz.home.RelaySmartSystems.Utils;
+import kz.home.RelaySmartSystems.model.def.DeviceInfo;
 import kz.home.RelaySmartSystems.model.entity.Controller;
 import kz.home.RelaySmartSystems.model.entity.User;
-import kz.home.RelaySmartSystems.model.def.Info;
 import kz.home.RelaySmartSystems.model.mapper.RCConfigMapper;
 import kz.home.RelaySmartSystems.model.entity.relaycontroller.RelayController;
 import kz.home.RelaySmartSystems.repository.ControllerRepository;
@@ -77,20 +76,16 @@ public class ControllerService {
         return controllerRepository.findAll();
     }
 
-    public void setControllerInfo(Info info) {
+    public void setControllerInfo(DeviceInfo info) {
         Controller c = controllerRepository.findByMac(info.getMac().toUpperCase());
         if (c != null) {
             try {
-                c.setUptime(info.getUptime());
-                c.setUptimeRaw(info.getUptimeRaw());
-                c.setFreeMemory(info.getFreeMemory());
+                c.setUptimeRaw((int) info.getUptimeRaw());
+                c.setFreeMemory((int) info.getFreeMemory());
                 c.setVersion(info.getVersion());
                 c.setEthIP(info.getEthIP());
                 c.setWifiIP(info.getWifiIP());
-//                c.setName(info.getName());
-//                c.setDescription(info.getDescription());
                 c.setWifiRSSI(info.getWifiRSSI());
-                c.setModel(info.getModel());
                 c.setResetReason(info.getResetReason());
                 c.setStatus("online");
                 controllerRepository.save(c);
@@ -122,8 +117,8 @@ public class ControllerService {
         controllerRepository.setOffline();
     }
 
-    public void updateLastSeen(UUID uuid) {
-        Controller c = controllerRepository.findById(uuid).orElse(null);
+    public void updateLastSeen(Controller c) {
+        //Controller c = controllerRepository.findById(uuid).orElse(null);
         if (c != null) {
             c.setLastSeen(new Date());
             controllerRepository.save(c);

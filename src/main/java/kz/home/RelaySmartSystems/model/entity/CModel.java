@@ -1,11 +1,11 @@
-package kz.home.RelaySmartSystems.model.entity.relaycontroller;
+package kz.home.RelaySmartSystems.model.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 @Getter
 @AllArgsConstructor
-public enum RCModel {
+public enum CModel {
     UNKNOWN(0,0,0),
     RCV1S(4, 4, 4),
     RCV1B(10, 16, 10),
@@ -17,8 +17,8 @@ public enum RCModel {
     private final int inputs;
     private final int buttons;
 
-    public static RCModel fromInt(int index) {
-        RCModel[] models = RCModel.values();
+    public static CModel fromInt(int index) {
+        CModel[] models = CModel.values();
         if (index < 0 || index >= models.length) {
             return UNKNOWN; // или выбрасывать ошибку
         }

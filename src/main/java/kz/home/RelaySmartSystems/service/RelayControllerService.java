@@ -66,33 +66,19 @@ public class RelayControllerService {
     }
 
     @Transactional
-    public void updateRelayControllerIOStates(RCUpdateIODTO rcUpdateIODTO) {
+    public void updateIOStates(RelayController relayController, int outputsStates, int inputStates) {
 
-        // TODO : make it binary
+        relayController.getOutputs().forEach(output -> {
+            int id = output.getId();
+            boolean state = (outputsStates & (1 << id)) != 0;
+            output.setState(state ? "on" : "off");
+        });
 
-        RelayController relayController = relayControllerRepository.findByMac(rcUpdateIODTO.getMac());
-        if (relayController == null) {
-            // контролер не найден
-            logger.error("Relay controller with mac {} not found", rcUpdateIODTO.getMac());
-            return;
-        }
-
-        for (RCUpdateIODTO.RCState out : rcUpdateIODTO.getOutputs()) {
-            relayController.getOutputs().stream()
-                    .filter(child -> child.getId().equals(out.getId()))
-                    .findFirst()
-                    .ifPresent(child -> {
-                        child.setState(out.getState());
-                    });
-        }
-        for (RCUpdateIODTO.RCState in : rcUpdateIODTO.getInputs()) {
-            relayController.getInputs().stream()
-                    .filter(child -> child.getId().equals(in.getId()))
-                    .findFirst()
-                    .ifPresent(child -> {
-                        child.setState(in.getState());
-                    });
-        }
+        relayController.getInputs().forEach(input -> {
+            int id = input.getId();
+            boolean state = (inputStates & (1 << id)) != 0;
+            input.setState(state ? "on" : "off");
+        });
         relayControllerRepository.save(relayController);
     }
 
@@ -104,7 +90,7 @@ public class RelayControllerService {
                 o.setState(state);
                 outputRepository.save(o);
             }
-            controllerService.updateLastSeen(c.getUuid());
+            controllerService.updateLastSeen(c);
         }
     }
 
@@ -219,7 +205,7 @@ public class RelayControllerService {
     }
 
     @Transactional
-    public void linkNodeRC(String mac, String nodeMac, RCModel model) {
+    public void linkNodeRC(String mac, String nodeMac, CModel model) {
         RelayController rc = relayControllerRepository.findByMac(mac);
         RelayController nodeRc = checkCreateRC(nodeMac, model);
 
@@ -261,7 +247,7 @@ public class RelayControllerService {
         // TODO : delete empty groups
     }
 
-    public RelayController checkCreateRC(String mac, RCModel model) {
+    public RelayController checkCreateRC(String mac, CModel model) {
         RelayController rc = relayControllerRepository.findByMac(mac);
         if (rc != null) {
             return rc;
@@ -269,7 +255,7 @@ public class RelayControllerService {
         return createDefaultRC(mac, model);
     }
 
-    public RelayController createDefaultRC(String mac, RCModel model) {
+    public RelayController createDefaultRC(String mac, CModel model) {
         if (mac == null) return null;
 
         RelayController rc = new RelayController();
@@ -277,7 +263,7 @@ public class RelayControllerService {
         rc.setName("new RC "+mac);
         rc.setDescription("my RC "+mac);
         rc.setType("relayController");
-        rc.setModel(model.name());
+        rc.setModel(model);
 
         List<RCOutput> outputs = new ArrayList<>();
         for (int i = 0; i < model.getOutputs(); i++) {
@@ -359,32 +345,6 @@ public class RelayControllerService {
         return rc;
     }
 
-    @Transactional
-    public String saveNewRelayController(RCConfigDTO rcConfigDTO) throws InvocationTargetException, IllegalAccessException {
-        // only for new RC
-        // find existing RC
-        String mac = rcConfigDTO.getMac();
-        String res = "OK";
-        if (mac == null) {
-            res = "Mac is null";
-            logger.error(res);
-            return res;
-        }
-        RelayController existingRelayController = relayControllerRepository.findByMac(mac);
-        if (existingRelayController != null) {
-            // rc found. delete it
-            logger.info("found existed relayController. deleting it");
-            relayControllerRepository.delete(existingRelayController);
-        }
-
-        RelayController relayController = relayControllerMapper.toEntity(rcConfigDTO); //rcConfigMapper.toEntityRC(rcConfigDTO);
-        relayControllerRepository.save(relayController);
-
-        // save config
-        res = saveConfig(rcConfigDTO);
-        return res;
-    }
-
     public User getUser(String mac) {
         RelayController c = relayControllerRepository.findByMac(mac.toUpperCase());
         if (c != null) {
@@ -414,58 +374,6 @@ public class RelayControllerService {
         } else {
             return "Output not found";
         }
-    }
-
-    @Transactional
-    private String updateInputTransaction1(RCInputDTO rcInputDTO) {
-        Optional<RCInput> rcInputOpt = inputRepository.findById(rcInputDTO.getUuid());
-        if (rcInputOpt.isEmpty()) {
-            return "INPUT_NOT_FOUND";
-        }
-
-        RCInput rcInput = rcInputOpt.get();
-        rcInput.setName(rcInputDTO.getName());
-        //rcInput.setType(rcInputDTO.getType());
-
-        if (!rcInput.getCRC().equals(rcInputDTO.getCRC())) {
-            // events changed
-            rcInput.getEvents().clear();
-            inputRepository.flush();
-
-            if (rcInputDTO.getEvents() != null) {
-                for (RCEventDTO eventDto : rcInputDTO.getEvents()) {
-                    RCEvent event = new RCEvent();
-                    event.setEvent(eventDto.getEvent());
-                    event.setInput(rcInput);
-
-                    // actions
-                    if (eventDto.getActions() != null) {
-                        List<RCAction> actions = new ArrayList<>();
-                        for (RCActionDTO actionDto : eventDto.getActions()) {
-                            RCAction action = getActionFromDto(actionDto);
-                            action.setEvent(event);
-                            actions.add(action);
-                        }
-                        event.setActions(actions);
-                    }
-                    // acls
-                    if (eventDto.getAcls() != null) {
-                        List<RCAcl> acls = new ArrayList<>();
-                        for (RCAclDTO aclDto : eventDto.getAcls()) {
-                            RCAcl acl = getAclFromDto(aclDto);
-                            acl.setEvent(event);
-                            acls.add(acl);
-                        }
-                        event.setAcls(acls);
-                    }
-                    rcInput.getEvents().add(event);
-                }
-            }
-        } else {
-            logger.info("Input {} events not changed", rcInput.getName());
-        }
-        inputRepository.save(rcInput);
-        return "OK";
     }
 
     private RCAction getActionFromDto(RCActionDTO actionDto) {
@@ -506,7 +414,6 @@ public class RelayControllerService {
     }
 
     @Transactional
-    //private String updateInputTransaction(RCInputDTO rcInputDTO) {
     public String updateInput(RCInputDTO rcInputDTO) {
         Optional<RCInput> rcInputOpt = inputRepository.findById(rcInputDTO.getUuid());
         if (rcInputOpt.isEmpty()) {
@@ -548,18 +455,17 @@ public class RelayControllerService {
     }
 
     private void mergeActions(RCEvent event, List<RCActionDTO> dtos) {
-        // always replace actions
-        if (event.getActions() != null)
-            event.getActions().clear();
-
-        List<RCAction> actions = new ArrayList<>();
-        for (RCActionDTO actionDto : dtos) {
-            RCAction action = getActionFromDto(actionDto);
-            action.setEvent(event);
-            actions.add(action);
+        if (event.getActions() == null) {
+            event.setActions(new ArrayList<>());
         }
-        event.setActions(actions);
-
+        event.getActions().clear();
+        if (dtos != null) {
+            for (RCActionDTO actionDto : dtos) {
+                RCAction action = getActionFromDto(actionDto);
+                action.setEvent(event);
+                event.getActions().add(action);
+            }
+        }
     }
 
     @Transactional
@@ -576,10 +482,11 @@ public class RelayControllerService {
     }
 
     public List<RelayController> resolveGroupControllers(RelayController rc) {
-        if (rc.getGroup() == null) {
+        RCGroup g = rc.getGroup();
+        if (g == null) {
             return List.of(rc);
         }
-        return rc.getGroup().getControllers();
+        return g.getControllers();
     }
 
     private void writeMac(ByteBuffer buf, String macStr) {
@@ -599,9 +506,11 @@ public class RelayControllerService {
 
     private void writeAction(ByteBuffer buf, RCAction a, List<RelayController> all) {
         RelayController targetNode = a.getNode();
-        if (targetNode == null)
-            throw new IllegalStateException("Action has no target node");
-
+        if (targetNode == null) {
+            // if no specific node
+            targetNode = a.getEvent().getInput().getRelayController();
+            //throw new IllegalStateException("Action has no target node");
+        }
         RCOutput out = a.getOutput();
         writeMac(buf, targetNode.getMac());
         buf.put(out.getId().byteValue());
@@ -729,19 +638,26 @@ public class RelayControllerService {
         }
     }
 
+    @Transactional
     public BinaryMessage makeBConfig(String mac) {
         RelayController relayController = relayControllerRepository.findByMac(mac);
         if (relayController == null)
             return null;
+        Integer currentVersion = relayController.getVersion();
+        if (currentVersion == null)
+            currentVersion = 0;
+        currentVersion++;
 
         List<RelayController> controllers = resolveGroupControllers(relayController);
 
         ByteBuffer buf = ByteBuffer.allocate(8192);
         buf.order(ByteOrder.LITTLE_ENDIAN);
 
-        int nodesPos = buf.position();
+        buf.put((byte)0xAA);
+        buf.putChar('C');
 
         // header nodes_cfg_t
+        buf.putInt(currentVersion);
         buf.put((byte) controllers.size()); // nodes_count
         int nodesArrayPos = buf.position();
         buf.position(nodesArrayPos + controllers.size() * 4); // reserve pointers
@@ -759,7 +675,15 @@ public class RelayControllerService {
         buf.position(nodesArrayPos);
         nodeOffsets.forEach(buf::putInt);
 
-        byte[] data = Arrays.copyOf(buf.array(), end);
+        buf.position(end);
+
+        byte[] dataForCrc = Arrays.copyOf(buf.array(), end);
+        int crc = Utils.crc16(dataForCrc, dataForCrc.length);
+
+        buf.putShort((short) crc);
+        byte[] data = Arrays.copyOf(buf.array(), buf.position());
+        //byte[] data = Arrays.copyOf(buf.array(), end);
+
         return new BinaryMessage(data);
     }
 
@@ -784,25 +708,37 @@ public class RelayControllerService {
         return new BinaryMessage(data);
     }
 
-    public BinaryMessage getActionMessage(String node, Integer output, String action) {
-        byte[] data = new byte[12];
+    public BinaryMessage getActionMessage(ActionDTO actionDTO) {
+        if (actionDTO.getAction() == null ||
+                actionDTO.getNode() == null || actionDTO.getNode().length() != 12 ||
+                (actionDTO.getOutput() == null && actionDTO.getInput() == null))
+            return null;
+
+        byte[] data = new byte[13];
         data[0] = (byte) 0xAA;
         data[1] = (byte) 0xAC;
 
-        if (node == null || node.length() != 12)
-            return null;
-
-        for (int i = 0; i < node.length(); i += 2) {
-            String hexPair = node.substring(i, i + 2);
+        for (int i = 0; i < actionDTO.getNode().length(); i += 2) {
+            String hexPair = actionDTO.getNode().substring(i, i + 2);
             data[2 + (i / 2)] = (byte) Integer.parseInt(hexPair, 16);
         }
-        data[8] = output.byteValue();
-        data[9] = mapAction(action);
+        if (actionDTO.getOutput() != null) {
+            data[8] = 0;
+            data[9] = actionDTO.getOutput().byteValue();
+        } else {
+            data[8] = 1;
+            data[9] = actionDTO.getInput().byteValue();
+        }
+        data[10] = mapAction(actionDTO.getAction());
 
-        int crc = Utils.crc16(data, 10);
-        data[10] = (byte) (crc & 0xFF);
-        data[11] = (byte) ((crc >> 8) & 0xFF);
+        int crc = Utils.crc16(data, 11);
+        data[11] = (byte) (crc & 0xFF);
+        data[12] = (byte) ((crc >> 8) & 0xFF);
 
         return new BinaryMessage(data);
+    }
+
+    public RelayController findRelayController(String mac) {
+        return relayControllerRepository.findByMac(mac);
     }
 }

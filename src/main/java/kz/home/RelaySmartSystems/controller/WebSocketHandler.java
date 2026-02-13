@@ -9,7 +9,9 @@ import kz.home.RelaySmartSystems.model.def.*;
 import kz.home.RelaySmartSystems.model.dto.*;
 import kz.home.RelaySmartSystems.model.entity.Controller;
 import kz.home.RelaySmartSystems.model.entity.User;
-import kz.home.RelaySmartSystems.model.entity.relaycontroller.RCModel;
+import kz.home.RelaySmartSystems.model.entity.CModel;
+import kz.home.RelaySmartSystems.model.entity.relaycontroller.RCDeviceInfo;
+import kz.home.RelaySmartSystems.model.entity.relaycontroller.RelayController;
 import kz.home.RelaySmartSystems.service.ControllerService;
 import kz.home.RelaySmartSystems.service.RelayControllerService;
 import kz.home.RelaySmartSystems.service.SessionService;
@@ -17,21 +19,16 @@ import kz.home.RelaySmartSystems.service.UserService;
 import kz.home.RelaySmartSystems.model.EErrorCodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
-import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
-import java.time.LocalDateTime;
 import java.util.*;
 
 @Component
@@ -60,8 +57,12 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
 
     @Override
     protected void handlePongMessage(WebSocketSession session, PongMessage message) throws Exception {
+        WSSession wsSession = getWSSession(session);
+        if (wsSession != null) {
+            wsSession.setLastPongTime(System.currentTimeMillis());
+        }
         //sessionService.updateLastActive(session.getId());
-        logger.debug("pong message {}", message.getPayload());
+        //logger.info("pong message {} sess {}", message.getPayload(), session.getId());
         super.handlePongMessage(session, message);
     }
 
@@ -78,6 +79,8 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
             session.close();
             return;
         }
+
+        controllerService.updateLastSeen(wsSession.getController());
 
         //MGC MSGTYPE PAYLOAD CRC
         if (!checkCRC(message)) {
@@ -99,13 +102,15 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
                 break;
             case 'I':
                 // info
+                infoProcess(message, wsSession);
                 break;
             case 'N':
-                // new node mac+model
+                // new node (mac, model)
                 newNodeEvent(message, wsSession);
                 break;
             case 'E':
-                // event
+                // event (mac, type[i/o], id, state)
+                ioEvent(message, wsSession);
                 break;
         }
     }
@@ -241,7 +246,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         if ((session.getUser() != null && session.getUser().isAdmin()) ||
                 (user != null && user.equals(session.getUser()))) {
             logger.debug("Sending message {} to controller {}", actionDTO.getAction(), actionDTO.getMac());
-            BinaryMessage msg = relayControllerService.getActionMessage(actionDTO.getNode(), actionDTO.getOutput(), actionDTO.getAction());
+            BinaryMessage msg = relayControllerService.getActionMessage(actionDTO);
             if (msg != null) {
                 sendMessageToController(actionDTO.getMac(), msg);
             }
@@ -279,7 +284,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
                     session.sendMessage(new TextMessage(errorMessage("Controller already linked")));
                 } else {
                     // проверить онлайн ли сейчас контроллер
-                    if (!isControllerOnline(linkRequest.getMac())) {
+                    if (!isControllerOnline(controller)) {
                         session.sendMessage(new TextMessage(errorMessage("Controller is offline. Make sure that is powered on and connect to internet.")));
                     } else {
                         Map<String, Object> payld = new HashMap<>();
@@ -390,7 +395,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         String mac = getControllerIdForWSSession(session);
         if (mac != null) {
             controllerService.setControllerOffline(mac);
-            sendMessageToWebUser(getUserForSession(session), message("STATUS", controllerStatus(mac, "offline")));
+            sendMessageToWebUsers(mac, message("STATUS", controllerStatus(mac, "offline")));
         }
         logger.info("Client {} disconnected. Code {}, reason {}", mac == null ? "web " + session.getId() : "controller " + mac, status.getCode(), status.getReason());
         wsSessions.removeIf(s -> s.getSession().equals(session));
@@ -419,6 +424,18 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
                 session.sendMessage(message);
                 return "OK";
             }).orElse("NOT_FOUND");
+    }
+
+    private void sendMessageToWebUsers(String mac, String message) {
+        // найти все текущие пользовательские сессии, к которым относится данный мак
+        User user = relayControllerService.getUser(mac);
+        wsSessions.stream().filter(session -> session.getUser() != null).toList().forEach(
+                session -> {
+                    if (session.getUser().isAdmin() || session.getUser().equals(user)) {
+                        session.sendMessage(new TextMessage(message));
+                    }
+                }
+        );
     }
 
     public void sendMessageToWebUser(User user, String message) {
@@ -453,7 +470,13 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
 
     private boolean isControllerOnline(String mac) {
         Controller c = controllerService.findController(mac);
-        return c != null && "online".equalsIgnoreCase(c.getStatus());
+        return isControllerOnline(c);
+    }
+
+    private boolean isControllerOnline(Controller c) {
+        if (c == null)
+            return false;
+        return "online".equalsIgnoreCase(c.getStatus());
     }
 
     private String getControllerIdForWSSession(WebSocketSession targetSession) {
@@ -463,9 +486,11 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         return session.map(WSSession::getMac).orElse(null);
     }
 
-    @Scheduled(fixedRate = 5000)
+    @Scheduled(fixedRate = 10000)
     private void alive() throws IOException {
         for (WSSession wsSession : wsSessions) {
+            wsSession.sendMessage(new PingMessage());
+            /*
             if (wsSession != null &&
                     wsSession.getSession().isOpen() &&
                     wsSession.isExpired() &&
@@ -473,6 +498,8 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
                 String date = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss").format(new Date());
                 wsSession.sendMessage(new TextMessage(AlertMessage.makeAlert(String.format("alive %s", date))));
             }
+
+             */
         }
     }
 
@@ -558,9 +585,13 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
             session.setMac(tokenData.getMac());
             // check for exists and create if need
             try {
-                relayControllerService.checkCreateRC(tokenData.getMac(), RCModel.valueOf(tokenData.getModel()));
+                relayControllerService.checkCreateRC(tokenData.getMac(), CModel.valueOf(tokenData.getModel()));
                 session.setAuthorized(true);
+                logger.info("Controller {} authorized successfully", session.getMac());
                 session.sendMessage(binMessage("H", 0)); // may be auth ack?
+                controllerService.setControllerOnline(session.getMac());
+                session.setController(controllerService.findController(session.getMac()));
+                sendMessageToWebUsers(session.getMac(), message("STATUS", controllerStatus(session.getMac(), "online")));
             } catch (Exception e) {
                 logger.error("checkCreateRC has error {}", e.getLocalizedMessage());
                 session.close(binMessage("H", EErrorCodes.E_SERVER_ERROR.getValue()));
@@ -597,10 +628,99 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
             wsSession.sendMessage(binMessage("N", EErrorCodes.E_NODE_ERROR.getValue()));
             return;
         }
-        RCModel model = RCModel.fromInt(buffer.get() & 0xFF);
+        CModel model = CModel.fromInt(buffer.get() & 0xFF);
 
         relayControllerService.linkNodeRC(wsSession.getMac(), mac, model);
         wsSession.sendMessage(binMessage("N", 0)); // may be auth ack?
     }
 
+    private void ioEvent(BinaryMessage msg, WSSession wsSession) {
+        ByteBuffer buffer = msg.getPayload();
+        int start = 2;
+
+        byte[] data = new byte[6];
+        buffer.position(start);
+        buffer.get(data);
+
+        String node = HexFormat.of().formatHex(data).toUpperCase();
+        int type = buffer.get() & 0xFF;
+        int id = buffer.get() & 0xFF;
+        int state = buffer.get() & 0xFF;
+        Map<String, Object> payld = new HashMap<>();
+        payld.put("mac", node);
+        payld.put("state", state == 0 ? "off" : "on");
+        if (type == 0) {
+            // output
+            int timer = Short.toUnsignedInt(buffer.getShort());
+            payld.put("output", id);
+            payld.put("timer", timer);
+        } else if (type == 1) {
+            // input
+            payld.put("input", id);
+        }
+        // save to db
+        sendMessageToWebUsers(wsSession.getMac(), message("UPDATE", payld));
+    }
+
+    private String macToString(byte[] mac) {
+        return String.format("%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+
+    private String intToIp(int ip) {
+        return (ip & 0xFF) + "." +
+               ((ip >> 8) & 0xFF) + "." +
+               ((ip >> 16) & 0xFF) + "." +
+               ((ip >> 24) & 0xFF);
+    }
+
+    void infoProcess(BinaryMessage msg, WSSession wsSession)  {
+        ByteBuffer buf = msg.getPayload();
+        buf.order(ByteOrder.LITTLE_ENDIAN);
+        buf.position(2);
+
+        RCDeviceInfo d = new RCDeviceInfo();
+        byte[] macBytes = new byte[6];
+        buf.get(macBytes);
+        d.setMac(macToString(macBytes));
+        d.setFreeMemory(Integer.toUnsignedLong(buf.getInt()));
+        d.setUptimeRaw(Integer.toUnsignedLong(buf.getInt()));
+        d.setVersion(Short.toUnsignedInt(buf.getShort()));
+        d.setCurdate(Integer.toUnsignedLong(buf.getInt()));
+        d.setWifiRSSI(buf.get());
+        d.setEthIP(intToIp(buf.getInt()));
+        d.setWifiIP(intToIp(buf.getInt()));
+
+        byte[] rr = new byte[36];
+        buf.get(rr);
+        d.setResetReason(new String(rr, StandardCharsets.UTF_8).trim());
+        controllerService.setControllerInfo(d);
+
+        // rc special
+        int outputsStates = buf.getInt() & 0xFFFF;
+        int inputsStates = buf.getInt() & 0xFFFF;
+        relayControllerService.updateIOStates((RelayController) wsSession.getController(), outputsStates, inputsStates);
+
+        d.setNeighborCount(Byte.toUnsignedInt(buf.get()));
+
+        for (int i = 0; i < 10; i++) {
+            byte[] nmac = new byte[6];
+            buf.get(nmac);
+            CModel model = CModel.fromInt(Byte.toUnsignedInt(buf.get()));
+            outputsStates = buf.getInt();
+            inputsStates = buf.getInt();
+
+            if (i < d.getNeighborCount()) {
+                RCDeviceInfo.NeighborInfo n = new RCDeviceInfo.NeighborInfo();
+                n.setMac(macToString(nmac));
+                n.setModel(model);
+                n.setOutputsStates(outputsStates);
+                n.setInputsStates(inputsStates);
+                d.getNeighbors().add(n);
+                RelayController rc = relayControllerService.findRelayController(n.getMac());
+                if (rc != null && !"online".equalsIgnoreCase(rc.getStatus())) {
+                    relayControllerService.updateIOStates(rc, outputsStates, inputsStates);
+                }
+            }
+        }
+    }
 }
