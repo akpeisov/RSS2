@@ -82,10 +82,10 @@ public class RelayControllerService {
         relayControllerRepository.save(relayController);
     }
 
-    public void setOutputState(String mac, Integer output, String state, Integer slaveId) {
+    public void setOutputState(String mac, Integer output, String state) {
         RelayController c = relayControllerRepository.findByMac(mac.toUpperCase());
         if (c != null) {
-            RCOutput o = outputRepository.findOutput(c.getUuid(), output, slaveId);
+            RCOutput o = outputRepository.findOutput(c.getUuid(), output);
             if (o != null) {
                 o.setState(state);
                 outputRepository.save(o);
@@ -94,10 +94,10 @@ public class RelayControllerService {
         }
     }
 
-    public void setInputState(String mac, Integer input, String state, Integer slaveId) {
+    public void setInputState(String mac, Integer input, String state) {
         RelayController c = relayControllerRepository.findByMac(mac.toUpperCase());
         if (c != null) {
-            RCInput o = inputRepository.findInput(c.getUuid(), input, slaveId);
+            RCInput o = inputRepository.findInput(c.getUuid(), input);
             if (o != null) {
                 o.setState(state);
                 inputRepository.save(o);
@@ -713,10 +713,12 @@ public class RelayControllerService {
                 actionDTO.getNode() == null || actionDTO.getNode().length() != 12 ||
                 (actionDTO.getOutput() == null && actionDTO.getInput() == null))
             return null;
+        // 0   1  2-7   8       9     10    11-12
+        // AA  A  NODE  OUT/IN  ID  ACTION  CRC16
 
         byte[] data = new byte[13];
         data[0] = (byte) 0xAA;
-        data[1] = (byte) 0xAC;
+        data[1] = (byte) 'A';
 
         for (int i = 0; i < actionDTO.getNode().length(); i += 2) {
             String hexPair = actionDTO.getNode().substring(i, i + 2);

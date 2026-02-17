@@ -2,6 +2,7 @@ package kz.home.RelaySmartSystems.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kz.home.RelaySmartSystems.Utils;
+import kz.home.RelaySmartSystems.VersionPrinter;
 import kz.home.RelaySmartSystems.filters.IpHandshakeInterceptor;
 import kz.home.RelaySmartSystems.filters.JwtAuthorizationFilter;
 import kz.home.RelaySmartSystems.model.*;
@@ -19,6 +20,7 @@ import kz.home.RelaySmartSystems.service.UserService;
 import kz.home.RelaySmartSystems.model.EErrorCodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
@@ -30,6 +32,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+
+import static kz.home.RelaySmartSystems.model.mapper.BConfigMapper.mapAction;
 
 @Component
 public class WebSocketHandler extends AbstractWebSocketHandler {
@@ -378,6 +382,12 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         wsSessions.add(wsSession);
         logger.debug("New client connected with ID {} client IP {}", session.getId(), clientIpAddress);
         sessionService.addSession(session.getId(), clientIpAddress);
+        HttpHeaders headers = session.getHandshakeHeaders();
+        String userAgent = headers.getFirst(HttpHeaders.USER_AGENT);
+        if (userAgent != null && userAgent.contains("ESP32")) {
+            // send hello from server
+            session.sendMessage(getHelloServerMessage());
+        }
         super.afterConnectionEstablished(session);
     }
 
@@ -406,6 +416,34 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         logger.error("handleTransportError with ID {} {}", session.getId(), exception.getMessage());
         session.getAttributes().put("lastError", exception);
+    }
+
+    public BinaryMessage getHelloServerMessage() {
+        byte[] data = new byte[11];
+        data[0] = (byte) 0xAA;
+        data[1] = (byte) 0xBB;
+
+        String version = VersionPrinter.getAppVersion();
+        if (version == null) {
+            version = "0.0.0";
+        }
+        String[] parts = version.split("\\.");
+        data[2] = (byte) Integer.parseInt(parts[0]);
+        data[3] = (byte) Integer.parseInt(parts[1]);
+        data[4] = (byte) Integer.parseInt(parts[2]);
+
+        // get current datetime as unix timestamp and write to data
+        long timestamp = System.currentTimeMillis() / 1000L;
+        data[5] = (byte) (timestamp & 0xFF);
+        data[6] = (byte) ((timestamp >> 8) & 0xFF);
+        data[7] = (byte) ((timestamp >> 16) & 0xFF);
+        data[8] = (byte) ((timestamp >> 24) & 0xFF);
+
+        int crc = Utils.crc16(data, 9);
+        data[9] = (byte) (crc & 0xFF);
+        data[10] = (byte) ((crc >> 8) & 0xFF);
+
+        return new BinaryMessage(data);
     }
 
     private User getUserForSession(WebSocketSession targetSession) {
@@ -525,14 +563,16 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         return java.util.HexFormat.of().withUpperCase().formatHex(bytes);
     }
 
-//    private BinaryMessage binMessage(boolean isOk, int err) {
-//        byte[] errorBytes = {(byte) (isOk ? 0xE0 : 0xF0), (byte) 0x00, (byte) err};
-//        return new BinaryMessage(errorBytes);
-//    }
-
     private BinaryMessage binMessage(String type, int err) {
-        byte[] errorBytes = {(byte) type.charAt(0), (byte) err};
-        return new BinaryMessage(errorBytes);
+        byte[] msg = {(byte) 0xAA, (byte) type.charAt(0), (byte) err};
+        // add crc to end of packet
+        int crc = Utils.crc16(msg, msg.length);
+        byte crcLow = (byte) (crc & 0xFF);
+        byte crcHigh = (byte) ((crc >> 8) & 0xFF);
+        msg = Arrays.copyOf(msg, msg.length + 2);
+        msg[msg.length - 2] = crcLow;
+        msg[msg.length - 1] = crcHigh;
+        return new BinaryMessage(msg);
     }
 
     private boolean checkCRC(BinaryMessage msg) {
@@ -646,19 +686,22 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         int type = buffer.get() & 0xFF;
         int id = buffer.get() & 0xFF;
         int state = buffer.get() & 0xFF;
+        String sState = state == 0 ? "off" : "on";
         Map<String, Object> payld = new HashMap<>();
         payld.put("mac", node);
-        payld.put("state", state == 0 ? "off" : "on");
+        payld.put("state", sState);
         if (type == 0) {
             // output
             int timer = Short.toUnsignedInt(buffer.getShort());
             payld.put("output", id);
             payld.put("timer", timer);
+            relayControllerService.setOutputState(wsSession.getMac(), id, sState);
         } else if (type == 1) {
             // input
             payld.put("input", id);
+            relayControllerService.setInputState(wsSession.getMac(), id, sState);
         }
-        // save to db
+        // TODO : save to db
         sendMessageToWebUsers(wsSession.getMac(), message("UPDATE", payld));
     }
 
