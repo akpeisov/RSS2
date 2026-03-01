@@ -24,5 +24,6 @@ public class RCDeviceInfo extends DeviceInfo {
         private CModel model;
         private int outputsStates;
         private int inputsStates;
+        private boolean isOnline;
     }
 }

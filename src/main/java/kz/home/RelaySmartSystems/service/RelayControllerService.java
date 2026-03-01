@@ -65,9 +65,12 @@ public class RelayControllerService {
         this.deviceConfigService = deviceConfigService;
     }
 
-    @Transactional
-    public void updateIOStates(RelayController relayController, int outputsStates, int inputStates) {
 
+    @Transactional
+    public void updateIOStates(String mac, int outputsStates, int inputsStates) {
+        RelayController relayController = relayControllerRepository.findByMac(mac);
+        if (relayController == null)
+            return;
         relayController.getOutputs().forEach(output -> {
             int id = output.getId();
             boolean state = (outputsStates & (1 << id)) != 0;
@@ -76,7 +79,7 @@ public class RelayControllerService {
 
         relayController.getInputs().forEach(input -> {
             int id = input.getId();
-            boolean state = (inputStates & (1 << id)) != 0;
+            boolean state = (inputsStates & (1 << id)) != 0;
             input.setState(state ? "on" : "off");
         });
         relayControllerRepository.save(relayController);

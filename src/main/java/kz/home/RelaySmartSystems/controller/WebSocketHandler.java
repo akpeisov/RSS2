@@ -27,6 +27,7 @@ import org.springframework.web.socket.*;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
 
+import javax.transaction.Transactional;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -313,7 +314,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
 
     private void processCommand(Command command, WSSession wsSession) {
         logger.debug("Command {}, mac {}", command.getCommand(), command.getMac());
-        if (!isControllerOnline(command.getMac())) {
+        if (!isControllerOnline(command.getMac()) && (!"DELETE".equalsIgnoreCase(command.getCommand()))) {
             wsSession.sendMessage(new TextMessage(errorMessage("Controller offline")));
             return;
         }
@@ -623,6 +624,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
 
         if (tokenData.getMac() != null) {
             session.setMac(tokenData.getMac());
+            sessionService.setMac(session.getId(), tokenData.getMac());
             // check for exists and create if need
             try {
                 relayControllerService.checkCreateRC(tokenData.getMac(), CModel.valueOf(tokenData.getModel()));
@@ -631,6 +633,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
                 session.sendMessage(binMessage("H", 0)); // may be auth ack?
                 controllerService.setControllerOnline(session.getMac());
                 session.setController(controllerService.findController(session.getMac()));
+
                 sendMessageToWebUsers(session.getMac(), message("STATUS", controllerStatus(session.getMac(), "online")));
             } catch (Exception e) {
                 logger.error("checkCreateRC has error {}", e.getLocalizedMessage());
@@ -686,6 +689,8 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         int type = buffer.get() & 0xFF;
         int id = buffer.get() & 0xFF;
         int state = buffer.get() & 0xFF;
+        int outputsStates = Short.toUnsignedInt(buffer.getShort());
+        int inputsStates = Short.toUnsignedInt(buffer.getShort());
         String sState = state == 0 ? "off" : "on";
         Map<String, Object> payld = new HashMap<>();
         payld.put("mac", node);
@@ -702,6 +707,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
             relayControllerService.setInputState(wsSession.getMac(), id, sState);
         }
         // TODO : save to db
+        relayControllerService.updateIOStates(node, outputsStates, inputsStates);
         sendMessageToWebUsers(wsSession.getMac(), message("UPDATE", payld));
     }
 
@@ -739,18 +745,20 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         controllerService.setControllerInfo(d);
 
         // rc special
-        int outputsStates = buf.getInt() & 0xFFFF;
-        int inputsStates = buf.getInt() & 0xFFFF;
-        relayControllerService.updateIOStates((RelayController) wsSession.getController(), outputsStates, inputsStates);
+        int outputsStates = Short.toUnsignedInt(buf.getShort());
+        int inputsStates = Short.toUnsignedInt(buf.getShort());
+        relayControllerService.updateIOStates(wsSession.getMac(), outputsStates, inputsStates);
 
         d.setNeighborCount(Byte.toUnsignedInt(buf.get()));
+        boolean online = false;
 
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < d.getNeighborCount(); i++) {
             byte[] nmac = new byte[6];
             buf.get(nmac);
             CModel model = CModel.fromInt(Byte.toUnsignedInt(buf.get()));
-            outputsStates = buf.getInt();
-            inputsStates = buf.getInt();
+            outputsStates = Short.toUnsignedInt(buf.getShort());
+            inputsStates = Short.toUnsignedInt(buf.getShort());
+            online = buf.get() > 0;
 
             if (i < d.getNeighborCount()) {
                 RCDeviceInfo.NeighborInfo n = new RCDeviceInfo.NeighborInfo();
@@ -758,11 +766,11 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
                 n.setModel(model);
                 n.setOutputsStates(outputsStates);
                 n.setInputsStates(inputsStates);
+                n.setOnline(online);
                 d.getNeighbors().add(n);
-                RelayController rc = relayControllerService.findRelayController(n.getMac());
-                if (rc != null && !"online".equalsIgnoreCase(rc.getStatus())) {
-                    relayControllerService.updateIOStates(rc, outputsStates, inputsStates);
-                }
+                relayControllerService.checkCreateRC(n.getMac(), model);
+                relayControllerService.linkNodeRC(d.getMac(), n.getMac(), model);
+                relayControllerService.updateIOStates(n.getMac(), outputsStates, inputsStates);
             }
         }
     }

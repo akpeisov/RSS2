@@ -76,6 +76,7 @@ public class ControllerService {
         return controllerRepository.findAll();
     }
 
+    @Transactional
     public void setControllerInfo(DeviceInfo info) {
         Controller c = controllerRepository.findByMac(info.getMac().toUpperCase());
         if (c != null) {
