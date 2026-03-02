@@ -320,13 +320,13 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         }
         BinaryMessage msg = null;
         if ("toggleSendLogs".equalsIgnoreCase(command.getCommand())) {
-            msg = relayControllerService.getCmdMessage("L");
+            msg = relayControllerService.getCmdMessage("LOGS");
         } else if ("startOTA".equalsIgnoreCase(command.getCommand())) {
-            msg = relayControllerService.getCmdMessage("O");
+            msg = relayControllerService.getCmdMessage("OTA");
         } else if ("INFO".equalsIgnoreCase(command.getCommand())) {
-            msg = relayControllerService.getCmdMessage("I");
+            msg = relayControllerService.getCmdMessage("INFO");
         } else if ("REBOOT".equalsIgnoreCase(command.getCommand())) {
-            msg = relayControllerService.getCmdMessage("R");
+            msg = relayControllerService.getCmdMessage("REBOOT");
         } else if ("UPLOADCONFIG".equalsIgnoreCase(command.getCommand())) {
             msg = relayControllerService.makeBConfig(command.getMac());
         } else if ("DELETE".equalsIgnoreCase(command.getCommand())) {
@@ -340,6 +340,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         }
         if (msg != null) {
             String res = sendMessageToController(command.getMac(), msg);
+            logger.info("Sent {}", printBinaryMessage(msg));
             if ("OK".equalsIgnoreCase(res))
                 wsSession.sendMessage(new TextMessage(successMessage("Successfully sent")));
             else
@@ -561,7 +562,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         byte[] bytes = new byte[payload.remaining()];
         payload.rewind();
         payload.get(bytes);
-        return java.util.HexFormat.of().withUpperCase().formatHex(bytes);
+        return java.util.HexFormat.of().withUpperCase().withDelimiter(" ").formatHex(bytes);
     }
 
     private BinaryMessage binMessage(String type, int err) {

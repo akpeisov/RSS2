@@ -11,6 +11,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -507,39 +510,148 @@ public class RelayControllerService {
         }
     }
 
-    private void writeAction(ByteBuffer buf, RCAction a, List<RelayController> all) {
-        RelayController targetNode = a.getNode();
-        if (targetNode == null) {
-            // if no specific node
-            targetNode = a.getEvent().getInput().getRelayController();
-            //throw new IllegalStateException("Action has no target node");
-        }
-        RCOutput out = a.getOutput();
-        writeMac(buf, targetNode.getMac());
-        buf.put(out.getId().byteValue());
-        buf.put(mapAction(a.getAction()));
-        int duration = (a.getDuration() == null) ? 0 : a.getDuration();
-        buf.putShort((short) duration);
-    }
+//    private void writeMac(DataOutputStream dos, String macStr) throws IOException {
+//        if (macStr == null) throw new IllegalArgumentException("MAC is null");
+//        String clean = macStr.replace(":", "").replace("-", "").trim();
+//        if (clean.length() != 12) throw new IllegalArgumentException("Bad MAC: " + macStr);
+//        for (int i = 0; i < 6; i++) {
+//            int b = Integer.parseInt(clean.substring(i * 2, i * 2 + 2), 16);
+//            dos.writeByte(b);
+//        }
+//    }
+
+//    private void writeAction2(ByteBuffer buf, RCAction a, List<RelayController> all) {
+//        RelayController targetNode = a.getNode();
+//        if (targetNode == null) {
+//            // if no specific node
+//            targetNode = a.getEvent().getInput().getRelayController();
+//            //throw new IllegalStateException("Action has no target node");
+//        }
+//        RCOutput out = a.getOutput();
+//        writeMac(buf, targetNode.getMac());
+//        buf.put(out.getId().byteValue());
+//        buf.put(mapAction(a.getAction()));
+//        int duration = (a.getDuration() == null) ? 0 : a.getDuration();
+//        buf.putShort((short) duration);
+//    }
+//
+//    private void writeOutput2(ByteBuffer buf, RCOutput o) {
+//
+//        buf.put(o.getId().byteValue());                          // id
+//        buf.put(BConfigMapper.mapOutputType(o.getType()));          // type
+//
+//        buf.put((byte) ("on".equalsIgnoreCase(o.getState()) ? 1 : 0)); // is_on
+//        buf.put((byte) ("1".equals(o.get_default()) ? 1 : 0));         // def_value
+//
+//        buf.putShort((short) (o.getTimer() == null ? 0 : o.getTimer())); // timer
+//
+//        switch (o.getType()) {
+//            case s -> {
+//                buf.putShort((short) (o.getLimit() == null ? 0 : o.getLimit()));
+//                buf.putShort((short) 0); // выравниваем под union размер
+//            }
+//            case t -> {
+//                buf.putShort((short) (o.getOn() == null ? 0 : o.getOn()));
+//                buf.putShort((short) (o.getOff() == null ? 0 : o.getOff()));
+//            }
+//            default -> {
+//                buf.putShort((short) 0);
+//                buf.putShort((short) 0);
+//            }
+//        }
+//    }
+//
+//    private void writeInput2(ByteBuffer buf, RCInput in) {
+//        buf.put(in.getId().byteValue());
+//        buf.put(BConfigMapper.mapInputType(in.getType()));
+//        buf.put((byte) ("on".equalsIgnoreCase(in.getState()) ? 1 : 0));
+//
+//        List<RCEvent> events = in.getEvents();
+//
+//        buf.put((byte) events.size());
+//
+//        int offsetPos = buf.position();
+//        buf.putShort((short) 0); // временно
+//
+//        // сохраним позицию чтобы позже дописать offset
+//        inputEventOffsetPatchList.add(new Patch(offsetPos, events));
+//    }
+//
+//    private void writeEvent2(ByteBuffer buf, RCEvent e) {
+//        buf.put(BConfigMapper.mapEvent(e.getEvent()));
+//
+//        List<RCAction> actions = e.getActions();
+//        buf.put((byte) actions.size());
+//
+//        int offsetPos = buf.position();
+//        buf.putShort((short) 0);
+//
+//        eventActionOffsetPatchList.add(new PatchAction(offsetPos, actions));
+//    }
+
+//    private void writeNode2(ByteBuffer buf, RelayController rc, List<RelayController> all) {
+//        // записываем MAC
+//        writeMac(buf, rc.getMac());
+//
+//        // резервируем место для io_cfg_t заголовка
+//        int ioCfgPos = buf.position();
+//        buf.position(ioCfgPos + 8); // version(2) + outputs_count(1) + inputs_count(1) + events_count(2) + actions_count(2) = 8 байт
+//
+//        // пишем outputs
+//        rc.getOutputs().forEach(o -> writeOutput(buf, o));
+//
+//        // пишем inputs
+//        rc.getInputs().forEach(i -> writeInput(buf, i));
+//
+//        // пишем events
+//        rc.getInputs().forEach(i -> i.getEvents().forEach(e -> writeEvent(buf, e)));
+//
+//        // пишем actions
+//        rc.getInputs().forEach(i ->
+//                i.getEvents().forEach(e ->
+//                        e.getActions().forEach(a -> writeAction(buf, a, all))
+//                )
+//        );
+//
+//        // считаем количество элементов
+//        int outputsCount = rc.getOutputs().size();
+//        int inputsCount = rc.getInputs().size();
+//        int eventsCount = rc.getInputs().stream()
+//                .mapToInt(i -> i.getEvents().size())
+//                .sum();
+//        int actionsCount = rc.getInputs().stream()
+//                .flatMap(i -> i.getEvents().stream())
+//                .mapToInt(e -> e.getActions().size())
+//                .sum();
+//
+//        // возвращаемся и записываем заголовок io_cfg_t
+//        buf.position(ioCfgPos);
+//        buf.putShort((short) 10); // версия конфига, например 1
+//        buf.put((byte) outputsCount);
+//        buf.put((byte) inputsCount);
+//        buf.putShort((short) eventsCount);
+//        buf.putShort((short) actionsCount);
+//
+//        // возвращаемся в конец для дальнейшей записи
+//        //buf.position(buf.limit());
+//    }
 
     private void writeOutput(ByteBuffer buf, RCOutput o) {
-
-        buf.put(o.getId().byteValue());                          // id
-        buf.put(BConfigMapper.mapOutputType(o.getType()));          // type
-
+        // 10 bytes
+        buf.put(o.getId().byteValue());                                // id
+        buf.put(BConfigMapper.mapOutputType(o.getType()));
         buf.put((byte) ("on".equalsIgnoreCase(o.getState()) ? 1 : 0)); // is_on
-        buf.put((byte) ("1".equals(o.get_default()) ? 1 : 0));         // def_value
-
-        buf.putShort((short) (o.getTimer() == null ? 0 : o.getTimer())); // timer
+        buf.put((byte) ("on".equals(o.get_default()) ? 1 : 0));          // def_value
+        buf.putShort(o.getTimer() == null ? 0 : o.getTimer().shortValue());
 
         switch (o.getType()) {
-            case s -> {
-                buf.putShort((short) (o.getLimit() == null ? 0 : o.getLimit()));
-                buf.putShort((short) 0); // выравниваем под union размер
+            case s -> { // simple
+                buf.putShort(o.getLimit() == null ? 0 : o.getLimit().shortValue());
+                buf.putShort((short) 0); // padding
             }
-            case t -> {
+            case t -> { // timer
                 buf.putShort((short) (o.getOn() == null ? 0 : o.getOn()));
-                buf.putShort((short) (o.getOff() == null ? 0 : o.getOff()));
+                buf.putShort((short) (o.getOff() == null ? 0 : o.getOn()));
             }
             default -> {
                 buf.putShort((short) 0);
@@ -548,144 +660,138 @@ public class RelayControllerService {
         }
     }
 
-    private void writeInput(ByteBuffer buf, RCInput in) {
-        buf.put(in.getId().byteValue());
+    private short writeInput(ByteBuffer buf, RCInput in, short offset) {
+        // 6 bytes
+        //uint8_t id;
+        //input_type_t type;
+        //bool is_on;
+        //uint8_t events_count;
+        //uint16_t events_offset;
+        buf.put(in.getId().byteValue());                                // id
         buf.put(BConfigMapper.mapInputType(in.getType()));
-        buf.put((byte) ("on".equalsIgnoreCase(in.getState()) ? 1 : 0));
+        buf.put((byte) ("on".equalsIgnoreCase(in.getState()) ? 1 : 0)); // is_on
 
         List<RCEvent> events = in.getEvents();
-
-        buf.put((byte) events.size());
-
-        int offsetPos = buf.position();
-        buf.putShort((short) 0); // временно
-
-        // сохраним позицию чтобы позже дописать offset
-        inputEventOffsetPatchList.add(new Patch(offsetPos, events));
+        byte size = (byte)events.size();
+        buf.put(size); // events_count
+        // events_offset
+        buf.putShort(offset);
+//        for (RCEvent e : events) {
+//            writeEvent(buf, e);
+//        }
+        return (short) (offset + size);
     }
 
-    private void writeEvent(ByteBuffer buf, RCEvent e) {
-        buf.put(BConfigMapper.mapEvent(e.getEvent()));
+    private short writeEvent(ByteBuffer buf, RCInput in, short offset) {
+        //event_type_t event;
+        //uint8_t actions_count;
+        //uint16_t actions_offset;
 
-        List<RCAction> actions = e.getActions();
-        buf.put((byte) actions.size());
+        for (RCEvent event : in.getEvents()) {
+            List<RCAction> actions = event.getActions();
 
-        int offsetPos = buf.position();
-        buf.putShort((short) 0);
+            buf.put(BConfigMapper.mapEvent(event.getEvent()));
+            buf.put((byte) actions.size());             // actions_count
+            buf.putShort(offset);    // offset
 
-        eventActionOffsetPatchList.add(new PatchAction(offsetPos, actions));
+            offset += (short) actions.size();
+        }
+        return offset;
     }
 
-    private void writeNode(ByteBuffer buf, RelayController rc, List<RelayController> all) {
-        writeMac(buf, rc.getMac());
+    private short writeAction(ByteBuffer buf, RCInput input, short offset) {
+        //node_uid_t target_node;
+        //uint8_t output_id;
+        //action_type_t action;
+        //uint16_t duration_sec;
+        String node = a.getOutput().getRelayController().getMac();
+        //String node = a.getNode().getMac();
+        writeMac(buf, node);
+        RCOutput out = a.getOutput();
+        buf.put(out.getId().byteValue());
+        buf.put(mapAction(a.getAction()));
+        buf.putShort((short)(a.getDuration() == null ? 0 : a.getDuration()));
 
-        int ioCfgPos = buf.position();
-        buf.position(ioCfgPos + 16); // reserve io_cfg_t
+        for (RCEvent event : input.getEvents()) {
+            for (RCAction action : event.getActions()) {
+                writeAction(buf, action);
+            }
+        }
 
-        int outputsOffset = buf.position();
-        rc.getOutputs().forEach(o -> writeOutput(buf, o));
+    }
 
-        int inputsOffset = buf.position();
-        rc.getInputs().forEach(i -> writeInput(buf, i));
+    private void writeNode(ByteBuffer buf, RelayController rc) {
+        // UID
+        writeMac(buf, rc.getMac()); // 6 байт
 
-        int eventsOffset = buf.position();
-        rc.getInputs().forEach(i -> i.getEvents().forEach(e -> writeEvent(buf, e)));
-
-        int actionsOffset = buf.position();
-        rc.getInputs().forEach(i ->
-                i.getEvents().forEach(e ->
-                        e.getActions().forEach(a -> writeAction(buf, a, all))));
-
-        int cur = buf.position();
-
-        // записываем io_cfg
-        buf.position(ioCfgPos);
-        buf.putInt(outputsOffset);
-        buf.putInt(inputsOffset);
-        buf.putInt(eventsOffset);
-        buf.putInt(actionsOffset);
+        // io_cfg_t header
+        buf.putShort((short)(rc.getVersion().shortValue() + 1)); // version
         buf.put((byte) rc.getOutputs().size());
         buf.put((byte) rc.getInputs().size());
-        buf.putShort((short) rc.getInputs().stream().mapToInt(i -> i.getEvents().size()).sum());
-        buf.putShort((short) rc.getInputs().stream()
+
+        int eventsCount = rc.getInputs().stream().mapToInt(i -> i.getEvents().size()).sum();
+        int actionsCount = rc.getInputs().stream()
                 .flatMap(i -> i.getEvents().stream())
-                .mapToInt(e -> e.getActions().size()).sum());
+                .mapToInt(e -> e.getActions().size())
+                .sum();
+        logger.info("mac {}, events {}, actions {}", rc.getMac(), eventsCount, actionsCount);
 
-        buf.position(cur);
+        buf.putShort((short) eventsCount);
+        buf.putShort((short) actionsCount);
 
-        // после записи всех outputs/inputs/events/actions
-        int actionsStart = actionsOffset;
-
-        for (PatchAction p : eventActionOffsetPatchList) {
-            int currentPos = buf.position();
-            buf.position(p.pos());
-            buf.putShort((short) actionsStart);
-            buf.position(currentPos);
-
-            for (RCAction a : p.actions()) {
-                writeAction(buf, a, all);
-            }
+        short offset = 0;
+        // write outputs
+        for (RCOutput o : rc.getOutputs()) writeOutput(buf, o);
+        // write inputs
+        for (RCInput i : rc.getInputs()) {
+            offset = writeInput(buf, i, offset);
         }
-
-        int eventsStart = eventsOffset;
-
-        for (Patch p : inputEventOffsetPatchList) {
-            int currentPos = buf.position();
-            buf.position(p.pos());
-            buf.putShort((short) eventsStart);
-            buf.position(currentPos);
-
-            for (RCEvent e : p.events()) {
-                writeEvent(buf, e);
-            }
-        }
+        // write events
+        offset = 0;
+        for (RCInput i : rc.getInputs())
+            offset = writeEvent(buf, i, offset);
+        // write actions
+        offset = 0;
+        for (RCInput input : rc.getInputs())
+            offset = writeAction(buf, input, offset);
+//        for (RCInput i : rc.getInputs())
+//            for (RCEvent e : i.getEvents())
+//                for (RCAction a : e.getActions())
+//                    writeAction(dos, a);
     }
 
+
     @Transactional
-    public BinaryMessage makeBConfig(String mac) {
+    public BinaryMessage makeBConfig(String mac){
         RelayController relayController = relayControllerRepository.findByMac(mac);
-        if (relayController == null)
-            return null;
-        Integer currentVersion = relayController.getVersion();
-        if (currentVersion == null)
-            currentVersion = 0;
-        currentVersion++;
+        if (relayController == null) return null;
+
+        int currentVersion = Optional.ofNullable(relayController.getVersion()).orElse(0) + 1;
 
         List<RelayController> controllers = resolveGroupControllers(relayController);
+
+//            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+//            DataOutputStream dos = new DataOutputStream(baos);
 
         ByteBuffer buf = ByteBuffer.allocate(8192);
         buf.order(ByteOrder.LITTLE_ENDIAN);
 
         buf.put((byte)0xAA);
-        buf.putChar('C');
+        buf.put((byte)'C');
+        // префикс
+        buf.put((byte)controllers.size());
 
-        // header nodes_cfg_t
-        buf.putInt(currentVersion);
-        buf.put((byte) controllers.size()); // nodes_count
-        int nodesArrayPos = buf.position();
-        buf.position(nodesArrayPos + controllers.size() * 4); // reserve pointers
-
-        List<Integer> nodeOffsets = new ArrayList<>();
-
+        // пишем все контроллеры
         for (RelayController rc : controllers) {
-            nodeOffsets.add(buf.position());
-            writeNode(buf, rc, controllers);
+            writeNode(buf, rc);
         }
 
-        int end = buf.position();
-
-        // прописываем offsets
-        buf.position(nodesArrayPos);
-        nodeOffsets.forEach(buf::putInt);
-
-        buf.position(end);
-
-        byte[] dataForCrc = Arrays.copyOf(buf.array(), end);
+        byte[] dataForCrc = Arrays.copyOf(buf.array(), buf.position());
         int crc = Utils.crc16(dataForCrc, dataForCrc.length);
 
         buf.putShort((short) crc);
+
         byte[] data = Arrays.copyOf(buf.array(), buf.position());
-        //byte[] data = Arrays.copyOf(buf.array(), end);
 
         return new BinaryMessage(data);
     }

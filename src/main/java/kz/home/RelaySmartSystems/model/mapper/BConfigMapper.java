@@ -23,11 +23,11 @@ public class BConfigMapper {
     }
 
     public static byte mapEvent(String e) {
-        return switch (e) {
+        return switch (e.toUpperCase()) {
             case "ON" -> 1;
             case "OFF" -> 2;
             case "TOGGLE" -> 3;
-            case "LONG" -> 4;
+            case "LONGPRESS" -> 4;
             default -> 5;
         };
     }

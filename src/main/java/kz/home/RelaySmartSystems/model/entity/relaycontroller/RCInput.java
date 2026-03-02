@@ -26,6 +26,7 @@ public class RCInput {
     //private String type;
     private String state;
     @OneToMany(mappedBy = "input", orphanRemoval = true, cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+
     private List<RCEvent> events;
     @JoinColumn(name = "relay_controller_uuid", nullable=false)
     @ManyToOne(optional = false)
