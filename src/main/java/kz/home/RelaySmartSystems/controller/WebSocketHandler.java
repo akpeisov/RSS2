@@ -316,7 +316,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         logger.debug("Command {}, mac {}", command.getCommand(), command.getMac());
         if (!isControllerOnline(command.getMac()) && (!"DELETE".equalsIgnoreCase(command.getCommand()))) {
             wsSession.sendMessage(new TextMessage(errorMessage("Controller offline")));
-            return;
+            //return;
         }
         BinaryMessage msg = null;
         if ("toggleSendLogs".equalsIgnoreCase(command.getCommand())) {
@@ -673,7 +673,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
             return;
         }
         CModel model = CModel.fromInt(buffer.get() & 0xFF);
-
+// TODO : IO states
         relayControllerService.linkNodeRC(wsSession.getMac(), mac, model);
         wsSession.sendMessage(binMessage("N", 0)); // may be auth ack?
     }

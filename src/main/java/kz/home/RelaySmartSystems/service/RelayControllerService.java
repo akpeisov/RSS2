@@ -667,57 +667,45 @@ public class RelayControllerService {
         //bool is_on;
         //uint8_t events_count;
         //uint16_t events_offset;
-        buf.put(in.getId().byteValue());                                // id
+        byte size = (byte)in.getEvents().size();
+        buf.put(in.getId().byteValue());
         buf.put(BConfigMapper.mapInputType(in.getType()));
-        buf.put((byte) ("on".equalsIgnoreCase(in.getState()) ? 1 : 0)); // is_on
-
-        List<RCEvent> events = in.getEvents();
-        byte size = (byte)events.size();
+        buf.put((byte) ("on".equalsIgnoreCase(in.getState()) ? 1 : 0));
         buf.put(size); // events_count
-        // events_offset
         buf.putShort(offset);
-//        for (RCEvent e : events) {
-//            writeEvent(buf, e);
-//        }
         return (short) (offset + size);
     }
 
-    private short writeEvent(ByteBuffer buf, RCInput in, short offset) {
+    private short writeEvent(ByteBuffer buf, RCEvent e, short offset) {
         //event_type_t event;
         //uint8_t actions_count;
         //uint16_t actions_offset;
 
-        for (RCEvent event : in.getEvents()) {
-            List<RCAction> actions = event.getActions();
+        byte actionsCount = (byte)e.getActions().size();
+        buf.put(BConfigMapper.mapEvent(e.getEvent()));
+        buf.put(actionsCount);
+        buf.putShort(offset);
+        offset += (short) actionsCount;
 
-            buf.put(BConfigMapper.mapEvent(event.getEvent()));
-            buf.put((byte) actions.size());             // actions_count
-            buf.putShort(offset);    // offset
-
-            offset += (short) actions.size();
-        }
         return offset;
     }
 
-    private short writeAction(ByteBuffer buf, RCInput input, short offset) {
+    private void writeAction(ByteBuffer buf, RCAction a) {
         //node_uid_t target_node;
         //uint8_t output_id;
         //action_type_t action;
         //uint16_t duration_sec;
-        String node = a.getOutput().getRelayController().getMac();
-        //String node = a.getNode().getMac();
-        writeMac(buf, node);
         RCOutput out = a.getOutput();
-        buf.put(out.getId().byteValue());
+        if (out == null) {
+            // ???
+            return;
+        }
+        String node = out.getRelayController().getMac();
+        writeMac(buf, node);
+        byte outputId = out.getId().byteValue();
+        buf.put(outputId);
         buf.put(mapAction(a.getAction()));
         buf.putShort((short)(a.getDuration() == null ? 0 : a.getDuration()));
-
-        for (RCEvent event : input.getEvents()) {
-            for (RCAction action : event.getActions()) {
-                writeAction(buf, action);
-            }
-        }
-
     }
 
     private void writeNode(ByteBuffer buf, RelayController rc) {
@@ -725,7 +713,10 @@ public class RelayControllerService {
         writeMac(buf, rc.getMac()); // 6 байт
 
         // io_cfg_t header
-        buf.putShort((short)(rc.getVersion().shortValue() + 1)); // version
+        Integer version = rc.getVersion();
+        if (version == null)
+            version = 1;
+        buf.putShort((short)(version.shortValue() + 1)); // version
         buf.put((byte) rc.getOutputs().size());
         buf.put((byte) rc.getInputs().size());
 
@@ -739,41 +730,51 @@ public class RelayControllerService {
         buf.putShort((short) eventsCount);
         buf.putShort((short) actionsCount);
 
-        short offset = 0;
         // write outputs
-        for (RCOutput o : rc.getOutputs()) writeOutput(buf, o);
+        for (RCOutput o : rc.getOutputs())
+            writeOutput(buf, o);
+
+        ByteBuffer bInputs = ByteBuffer.allocate(6 * 32);
+        bInputs.order(ByteOrder.LITTLE_ENDIAN);
+        short oInputs = 0;
+
+        ByteBuffer bEvents = ByteBuffer.allocate(4 * (16*4));
+        bEvents.order(ByteOrder.LITTLE_ENDIAN);
+        short oEvents = 0;
+
+        ByteBuffer bActions = ByteBuffer.allocate(10 * 4 * 256); // too many
+        bActions.order(ByteOrder.LITTLE_ENDIAN);
+
         // write inputs
         for (RCInput i : rc.getInputs()) {
-            offset = writeInput(buf, i, offset);
+            oInputs = writeInput(bInputs, i, oInputs);
+            if (!i.getEvents().isEmpty()) {
+                for (RCEvent e : i.getEvents()) {
+                    // тут додумать, чтобы если нет экшенов, то не передавать пустышки
+                    oEvents = writeEvent(bEvents, e, oEvents);
+                    for (RCAction a : e.getActions()) {
+                        writeAction(bActions, a);
+                    }
+                }
+            }
         }
-        // write events
-        offset = 0;
-        for (RCInput i : rc.getInputs())
-            offset = writeEvent(buf, i, offset);
-        // write actions
-        offset = 0;
-        for (RCInput input : rc.getInputs())
-            offset = writeAction(buf, input, offset);
-//        for (RCInput i : rc.getInputs())
-//            for (RCEvent e : i.getEvents())
-//                for (RCAction a : e.getActions())
-//                    writeAction(dos, a);
+
+        buf.put(buf.position(), bInputs, 0, bInputs.position());
+        buf.position(buf.position() + bInputs.position());
+        buf.put(buf.position(), bEvents, 0, bEvents.position());
+        buf.position(buf.position() + bEvents.position());
+        buf.put(buf.position(), bActions, 0, bActions.position());
+        buf.position(buf.position() + bActions.position());
     }
 
-
     @Transactional
-    public BinaryMessage makeBConfig(String mac){
+    public BinaryMessage makeBConfig(String mac) {
         RelayController relayController = relayControllerRepository.findByMac(mac);
         if (relayController == null) return null;
 
-        int currentVersion = Optional.ofNullable(relayController.getVersion()).orElse(0) + 1;
-
         List<RelayController> controllers = resolveGroupControllers(relayController);
 
-//            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-//            DataOutputStream dos = new DataOutputStream(baos);
-
-        ByteBuffer buf = ByteBuffer.allocate(8192);
+        ByteBuffer buf = ByteBuffer.allocate(8192 * 10);
         buf.order(ByteOrder.LITTLE_ENDIAN);
 
         buf.put((byte)0xAA);
