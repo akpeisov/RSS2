@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Slf4j
 @RestController
 @RequestMapping(value = "/test")
@@ -42,5 +45,13 @@ public class TestController {
 
         return ResponseEntity.notFound().build();
 
+    }
+
+    @GetMapping("/oom")
+    public void triggerOom() {
+        List<byte[]> list = new ArrayList<>();
+        while (true) {
+            list.add(new byte[10 * 1024 * 1024]);
+        }
     }
 }

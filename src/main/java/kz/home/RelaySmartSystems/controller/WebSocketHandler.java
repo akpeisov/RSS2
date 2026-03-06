@@ -20,6 +20,7 @@ import kz.home.RelaySmartSystems.service.UserService;
 import kz.home.RelaySmartSystems.model.EErrorCodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,9 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
     private final JwtAuthorizationFilter jwtAuthorizationFilter;
     private final UserService userService;
     private final SessionService sessionService;
+
+    @Value("${app.version}")
+    private String appVersion;
 
     public WebSocketHandler(ControllerService controllerService,
                             RelayControllerService relayControllerService,
@@ -425,7 +429,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         data[0] = (byte) 0xAA;
         data[1] = (byte) 0xBB;
 
-        String version = VersionPrinter.getAppVersion();
+        String version = appVersion;
         if (version == null) {
             version = "0.0.0";
         }
