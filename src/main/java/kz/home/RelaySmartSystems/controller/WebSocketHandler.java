@@ -684,6 +684,7 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
 
     private void ioEvent(BinaryMessage msg, WSSession wsSession) {
         ByteBuffer buffer = msg.getPayload();
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
         int start = 2;
 
         byte[] data = new byte[6];
@@ -703,13 +704,15 @@ public class WebSocketHandler extends AbstractWebSocketHandler {
         if (type == 0) {
             // output
             int timer = Short.toUnsignedInt(buffer.getShort());
+            String outputUUID = relayControllerService.setOutputState(node, id, sState);
             payld.put("output", id);
             payld.put("timer", timer);
-            relayControllerService.setOutputState(wsSession.getMac(), id, sState);
+            payld.put("outputUUID", outputUUID);
         } else if (type == 1) {
             // input
+            String inputUUID = relayControllerService.setInputState(node, id, sState);
             payld.put("input", id);
-            relayControllerService.setInputState(wsSession.getMac(), id, sState);
+            payld.put("inputUUID", inputUUID);
         }
         // TODO : save to db
         relayControllerService.updateIOStates(node, outputsStates, inputsStates);

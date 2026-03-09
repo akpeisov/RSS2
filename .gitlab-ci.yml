@@ -1,0 +1,76 @@
+stages:
+  - build-jar
+  - build-image
+  - deploy
+
+variables:
+  IMAGE_NAME: "rss"
+  # Maven settings для ускорения
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  GIT_STRATEGY: fetch
+  GIT_DEPTH: 20
+
+cache:
+  paths:
+    - .m2/repository
+
+# Общий шаблон для сборки JAR
+.build_jar_template:
+  image: maven:3.9-eclipse-temurin-17
+  stage: build-jar
+  script:
+    - mvn clean package -DskipTests
+  artifacts:
+    paths:
+      - target/*.jar
+    expire_in: 1 hour
+
+build_jar_test:
+  extends: .build_jar_template
+  rules:
+    - if: $CI_COMMIT_BRANCH == "test"
+
+build_jar_main:
+  extends: .build_jar_template
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# Сборка образов
+build_image:
+  stage: build-image
+  image: docker:latest
+  script:
+    - |
+      if [ "$CI_COMMIT_BRANCH" == "main" ]; then
+        docker build -t $IMAGE_NAME:latest .
+      else
+        docker build -t $IMAGE_NAME:test .
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"
+
+# Деплой TEST
+deploy_test:
+  stage: deploy
+  image: docker:latest
+  variables:
+    ENV_VAR_1: "test_value_1"
+    #DB_URL: "jdbc:postgresql://test-db:5432/testdb"
+  script:
+    - docker rm -f rss-test || true
+    - docker run -d --name rss-test -p 8081:8080 -e SERVER_PORT=8080 -e JDBC_URL=$DB_URL -e JDBC_PASS=$DB_PASS $IMAGE_NAME:test
+  rules:
+    - if: $CI_COMMIT_BRANCH == "test"
+
+# Деплой PROD
+deploy_prod:
+  stage: deploy
+  image: docker:latest
+  variables:
+    ENV_VAR_1: "prod_value_1"
+    #DB_URL: "jdbc:postgresql://prod-db:5432/proddb"
+  script:
+    - docker rm -f rss-prod || true
+    - docker run -d --name rss-prod -p 8080:8080 -e MY_VAR=$ENV_VAR_1 -e SPRING_DATASOURCE_URL=$DB_URL $IMAGE_NAME:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

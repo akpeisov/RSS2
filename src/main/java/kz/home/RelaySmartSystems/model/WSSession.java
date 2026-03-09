@@ -60,7 +60,8 @@ public class WSSession {
     public String sendMessage(WebSocketMessage<?> message) {
         lastSend = new Date();
         try {
-            session.sendMessage(message);
+            if (session.isOpen())
+                session.sendMessage(message);
             return "OK";
         } catch (IOException e) {
             return e.getLocalizedMessage();

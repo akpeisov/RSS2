@@ -88,27 +88,35 @@ public class RelayControllerService {
         relayControllerRepository.save(relayController);
     }
 
-    public void setOutputState(String mac, Integer output, String state) {
+    @Transactional
+    public String setOutputState(String mac, Integer output, String state) {
+        String outputUUID = "";
         RelayController c = relayControllerRepository.findByMac(mac.toUpperCase());
         if (c != null) {
             RCOutput o = outputRepository.findOutput(c.getUuid(), output);
             if (o != null) {
                 o.setState(state);
                 outputRepository.save(o);
+                outputUUID = o.getUuid().toString();
             }
             controllerService.updateLastSeen(c);
         }
+        return outputUUID;
     }
 
-    public void setInputState(String mac, Integer input, String state) {
+    @Transactional
+    public String setInputState(String mac, Integer input, String state) {
+        String inputUUID = "";
         RelayController c = relayControllerRepository.findByMac(mac.toUpperCase());
         if (c != null) {
             RCInput o = inputRepository.findInput(c.getUuid(), input);
             if (o != null) {
                 o.setState(state);
                 inputRepository.save(o);
+                inputUUID = o.getUuid().toString();
             }
         }
+        return inputUUID;
     }
 
     @Transactional
